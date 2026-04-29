@@ -65,6 +65,9 @@ struct MeasureGroup
   double lio_time;
   deque<sensor_msgs::Imu::ConstPtr> imu;
   cv::Mat img;
+  cv::Mat img0;
+  cv::Mat img1;
+  bool has_stereo = false;
   MeasureGroup()
   {
     vio_time = 0.0;
