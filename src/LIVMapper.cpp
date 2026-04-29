@@ -55,6 +55,8 @@ void LIVMapper::readParameters(ros::NodeHandle &nh)
   nh.param<int>("common/img_en", img_en, 1);
   nh.param<int>("common/lidar_en", lidar_en, 1);
   nh.param<string>("common/img_topic", img_topic, "/left_camera/image");
+  nh.param<string>("common/img_topic0", img_topic0, img_topic);
+  nh.param<string>("common/img_topic1", img_topic1, "/right_camera/image");
 
   nh.param<bool>("vio/normal_en", normal_en, true);
   nh.param<bool>("vio/inverse_composition_en", inverse_composition_en, false);
@@ -105,6 +107,11 @@ void LIVMapper::readParameters(ros::NodeHandle &nh)
   nh.param<vector<double>>("extrin_calib/extrinsic_R", extrinR, vector<double>());
   nh.param<vector<double>>("extrin_calib/Pcl", cameraextrinT, vector<double>());
   nh.param<vector<double>>("extrin_calib/Rcl", cameraextrinR, vector<double>());
+  vector<double> cameraextrinT1, cameraextrinR1;
+  nh.param<vector<double>>("extrin_calib/Pcl0", cameraextrinT, cameraextrinT);
+  nh.param<vector<double>>("extrin_calib/Rcl0", cameraextrinR, cameraextrinR);
+  nh.param<vector<double>>("extrin_calib/Pcl1", cameraextrinT1, cameraextrinT);
+  nh.param<vector<double>>("extrin_calib/Rcl1", cameraextrinR1, cameraextrinR);
   nh.param<double>("debug/plot_time", plot_time, -10);
   nh.param<int>("debug/frame_cnt", frame_cnt, 6);
 
@@ -196,6 +203,8 @@ void LIVMapper::initializeSubscribersAndPublishers(ros::NodeHandle &nh, image_tr
             nh.subscribe(lid_topic, 200000, &LIVMapper::standard_pcl_cbk, this);
   sub_imu = nh.subscribe(imu_topic, 200000, &LIVMapper::imu_cbk, this);
   sub_img = nh.subscribe(img_topic, 200000, &LIVMapper::img_cbk, this);
+  sub_img0 = nh.subscribe(img_topic0, 200000, &LIVMapper::img0_cbk, this);
+  sub_img1 = nh.subscribe(img_topic1, 200000, &LIVMapper::img1_cbk, this);
   
   pubLaserCloudFullRes = nh.advertise<sensor_msgs::PointCloud2>("/cloud_registered", 100);
   pubNormal = nh.advertise<visualization_msgs::MarkerArray>("visualization_marker", 100);
@@ -302,7 +311,7 @@ void LIVMapper::handleVIO()
     vio_manager->plot_flag = false;
   }
 
-  vio_manager->processFrame(LidarMeasures.measures.back().img, _pv_list, voxelmap_manager->voxel_map_, LidarMeasures.last_lio_update_time - _first_lidar_time);
+  vio_manager->processFrame(LidarMeasures.measures.back().img0.empty() ? LidarMeasures.measures.back().img : LidarMeasures.measures.back().img0, _pv_list, voxelmap_manager->voxel_map_, LidarMeasures.last_lio_update_time - _first_lidar_time);
 
   if (imu_prop_enable) 
   {
@@ -881,10 +890,42 @@ void LIVMapper::img_cbk(const sensor_msgs::ImageConstPtr &msg_in)
   sig_buffer.notify_all();
 }
 
+
+
+void LIVMapper::img0_cbk(const sensor_msgs::ImageConstPtr &msg_in)
+{
+  if (!img_en) return;
+  sensor_msgs::Image::Ptr msg(new sensor_msgs::Image(*msg_in));
+  double msg_header_time = msg->header.stamp.toSec() + img_time_offset;
+  if (last_timestamp_lidar < 0) return;
+  cv::Mat img_cur = getImageFromMsg(msg);
+  std::lock_guard<std::mutex> lock(mtx_buffer);
+  img0_buffer.push_back(img_cur);
+}
+
+void LIVMapper::img1_cbk(const sensor_msgs::ImageConstPtr &msg_in)
+{
+  if (!img_en) return;
+  sensor_msgs::Image::Ptr msg(new sensor_msgs::Image(*msg_in));
+  double msg_header_time = msg->header.stamp.toSec() + img_time_offset;
+  if (last_timestamp_lidar < 0) return;
+  cv::Mat img_cur = getImageFromMsg(msg);
+
+  mtx_buffer.lock();
+  img1_buffer.push_back(img_cur);
+  if (!img0_buffer.empty() && !img1_buffer.empty())
+  {
+    stereo_time_buffer.push_back(msg_header_time);
+  }
+  mtx_buffer.unlock();
+  sig_buffer.notify_all();
+}
+
 bool LIVMapper::sync_packages(LidarMeasureGroup &meas)
 {
   if (lid_raw_data_buffer.empty() && lidar_en) return false;
   if (img_buffer.empty() && img_en) return false;
+  if ((img0_buffer.empty() || img1_buffer.empty()) && img_en) return false;
   if (imu_buffer.empty() && imu_en) return false;
 
   switch (slam_mode_)
@@ -1054,6 +1095,9 @@ bool LIVMapper::sync_packages(LidarMeasureGroup &meas)
       m.vio_time = img_capture_time;
       m.lio_time = meas.last_lio_update_time;
       m.img = img_buffer.front();
+      m.img0 = img0_buffer.front();
+      m.img1 = img1_buffer.front();
+      m.has_stereo = true;
       mtx_buffer.lock();
       // while ((!imu_buffer.empty() && (imu_time < img_capture_time)))
       // {
@@ -1066,6 +1110,9 @@ bool LIVMapper::sync_packages(LidarMeasureGroup &meas)
       // }
       img_buffer.pop_front();
       img_time_buffer.pop_front();
+      img0_buffer.pop_front();
+      img1_buffer.pop_front();
+      stereo_time_buffer.pop_front();
       mtx_buffer.unlock();
       sig_buffer.notify_all();
       meas.measures.push_back(m);

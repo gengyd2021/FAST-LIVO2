@@ -1,5 +1,7 @@
 common:
   img_topic: "/left/image_raw"
+  img_topic0: "/left/image_raw"
+  img_topic1: "/right_camera/image"
   lid_topic: "/os1_cloud_node1/points"
   imu_topic: "/imu/imu"
   img_en: 1
@@ -10,6 +12,16 @@ extrin_calib:
   extrinsic_T: [-0.050, 0.000, 0.055]
   extrinsic_R: [1, 0, 0, 0, 1, 0, 0, 0, 1]
   # NTU_VIRAL
+  Rcl0: [0.0218308, 0.99976, -0.00201407,
+        -0.0131205, 0.00230088, 0.999911,
+        0.999676, -0.0218025, 0.0131676]
+  Pcl0: [0.122993,  0.0398643, -0.0577101]
+  # right camera placeholders for Route-A wiring (update with calibrated stereo extrinsics)
+  Rcl1: [1, 0, 0,
+         0, 1, 0,
+         0, 0, 1]
+  Pcl1: [0.0, 0.0, 0.0]
+  # backward-compatible primary camera extrinsic used by current estimator
   Rcl: [0.0218308, 0.99976, -0.00201407,
         -0.0131205, 0.00230088, 0.999911,
         0.999676, -0.0218025, 0.0131676]
