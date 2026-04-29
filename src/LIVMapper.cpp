@@ -925,7 +925,6 @@ bool LIVMapper::sync_packages(LidarMeasureGroup &meas)
 {
   if (lid_raw_data_buffer.empty() && lidar_en) return false;
   if (img_buffer.empty() && img_en) return false;
-  if ((img0_buffer.empty() || img1_buffer.empty()) && img_en) return false;
   if (imu_buffer.empty() && imu_en) return false;
 
   switch (slam_mode_)
@@ -1095,9 +1094,12 @@ bool LIVMapper::sync_packages(LidarMeasureGroup &meas)
       m.vio_time = img_capture_time;
       m.lio_time = meas.last_lio_update_time;
       m.img = img_buffer.front();
-      m.img0 = img0_buffer.front();
-      m.img1 = img1_buffer.front();
-      m.has_stereo = true;
+      m.has_stereo = !img0_buffer.empty() && !img1_buffer.empty();
+      if (m.has_stereo)
+      {
+        m.img0 = img0_buffer.front();
+        m.img1 = img1_buffer.front();
+      }
       mtx_buffer.lock();
       // while ((!imu_buffer.empty() && (imu_time < img_capture_time)))
       // {
@@ -1110,9 +1112,12 @@ bool LIVMapper::sync_packages(LidarMeasureGroup &meas)
       // }
       img_buffer.pop_front();
       img_time_buffer.pop_front();
-      img0_buffer.pop_front();
-      img1_buffer.pop_front();
-      stereo_time_buffer.pop_front();
+      if (m.has_stereo)
+      {
+        img0_buffer.pop_front();
+        img1_buffer.pop_front();
+        if (!stereo_time_buffer.empty()) stereo_time_buffer.pop_front();
+      }
       mtx_buffer.unlock();
       sig_buffer.notify_all();
       meas.measures.push_back(m);
